@@ -5,7 +5,7 @@ require("dotenv").config();
 const app = express();
 const mysql = require('mysql');
 const http = require("http");
-const cron = require("node-cron");
+const cron = require("node-cron");npm 
 const { dexABI_MLM } = require("./config");
 const conn=require('./connection');
 app.use(express.json());
@@ -126,6 +126,33 @@ async function processEvents(events) {
           conn.query(insertSql, values, (insertErr) => {
             if (insertErr) return console.error("Insert Error:", insertErr);
             console.log(`Event userIncome : ${transactionHash}`);
+          });
+     }
+     else  if (event === "withdrawal") {
+       let userRegId=await getuserIdnId(returnValues.user) || "0000";
+        const insertSql = `INSERT INTO withdrawal (user, user_idn,usdtAmount,transaction_id , block_timestamp,block_number) VALUES (?,?,?,?,?,?)`;
+          const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
+          conn.query(insertSql, values, (insertErr) => {
+            if (insertErr) return console.error("Insert Error:", insertErr);
+            console.log(`Event withdrawal : ${transactionHash}`);
+          });
+     }
+     else  if (event === "magicBooster") {
+       let userRegId=await getuserIdnId(returnValues.user) || "0000";
+        const insertSql = `INSERT INTO magicBooster (lastStakeId,user, user_idn,stackamt,unstackAmt,startdate,enddate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?,?)`;
+          const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
+          conn.query(insertSql, values, (insertErr) => {
+            if (insertErr) return console.error("Insert Error:", insertErr);
+            console.log(`Event magicBooster : ${transactionHash}`);
+          });
+     }
+      else  if (event === "magicBoosterUnstack") {
+       let userRegId=await getuserIdnId(returnValues.user) || "0000";
+        const insertSql = `INSERT INTO magicBoosterUnstack (lastStakeId,user, user_idn,stackamt,unstackAmt,unstackDate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?)`;
+          const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
+          conn.query(insertSql, values, (insertErr) => {
+            if (insertErr) return console.error("Insert Error:", insertErr);
+            console.log(`Event magicBoosterUnstack : ${transactionHash}`);
           });
      }
   }
