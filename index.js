@@ -5,7 +5,7 @@ require("dotenv").config();
 const app = express();
 const mysql = require('mysql');
 const http = require("http");
-const cron = require("node-cron");npm 
+const cron = require("node-cron");
 const { dexABI_MLM } = require("./config");
 const conn=require('./connection');
 app.use(express.json());
