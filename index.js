@@ -53,7 +53,7 @@ async function processEvents(events) {
     const { blockNumber, transactionHash, returnValues, event } = events[i];
      console.log(blockNumber, transactionHash, returnValues, event, "event");
     const timestamp = await getTimestamp(blockNumber);
-    const newTimestamp = Number(timestamp) * 1000
+    const newTimestamp = timestamp;
    if (event === "Registration") {
        let referralIdn=await getuserIdnId(returnValues.referrer) || "0000";
       const checkSql = "SELECT id FROM Registration WHERE user = ?";
