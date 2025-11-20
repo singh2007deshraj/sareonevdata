@@ -88,12 +88,12 @@ async function processEvents(events) {
     }
     else  if (event === "buyToken") {
       let userRegId=await getuserIdnId(returnValues.user) || "0000";
-      const checkSql = "SELECT id FROM buyToken WHERE transaction_id = ?";
-      conn.query(checkSql, [transactionHash], (err, res) => {
+      const values = [returnValues.user,userRegId,returnValues.amount,transactionHash,newTimestamp,blockNumber,returnValues.tokenQty ,returnValues.tokenRate ];
+      const checkSql = "SELECT id FROM buyToken WHERE user=?, user_idn=?, amount=?, transaction_id=?, block_timestamp=?,block_number=?, tokenQty=?, tokenRate=?";
+      conn.query(checkSql, values, (err, res) => {
         if (err) return console.error("DB Error:", err);
         if (res.length === 0) {
           const insertSql = `INSERT INTO buyToken (user, user_idn, amount, transaction_id, block_timestamp,block_number, tokenQty, tokenRate) VALUES (?, ?, ?, ?, ?, ?, ?,?)`;
-          const values = [returnValues.user,userRegId,returnValues.amount,transactionHash,newTimestamp,blockNumber,returnValues.tokenQty ,returnValues.tokenRate ];
           conn.query(insertSql, values, (insertErr) => {
             if (insertErr) return console.error("Insert Error:", insertErr);
             console.log(`token Buy: ${transactionHash}`);
@@ -103,30 +103,50 @@ async function processEvents(events) {
     }
     else  if (event === "Usertokenrecive") {
       let userRegId=await getuserIdnId(returnValues.user) || "0000";
+      const checkSql = "SELECT id FROM Usertokenrecive WHERE user = ? AND user_idn = ? AND fromUser = ? AND transaction_id = ? AND block_timestamp = ? AND block_number = ? AND tokenQty = ? AND tokenRate = ? AND recType = ?";
+      const values = [returnValues.user,userRegId,returnValues.fromUser,transactionHash,newTimestamp,blockNumber,returnValues.tokenQty ,returnValues.tokenRate,returnValues.recType ];
+      conn.query(checkSql, values, (err, res) => {
+        if (err) return console.error("DB Error:", err);
+         if (res.length === 0) {
       const insertSql = `INSERT INTO Usertokenrecive(user, user_idn,fromUser, transaction_id, block_timestamp,block_number, tokenQty, tokenRate,recType) VALUES (?, ?, ?, ?, ?, ?, ?,?,?)`;
-          const values = [returnValues.user,userRegId,returnValues.fromUser,transactionHash,newTimestamp,blockNumber,returnValues.tokenQty ,returnValues.tokenRate,returnValues.recType ];
-          conn.query(insertSql, values, (insertErr) => {
+       conn.query(insertSql, values, (insertErr) => {
             if (insertErr) return console.error("Insert Error:", insertErr);
             console.log(`Event Usertokenrecive: ${transactionHash}`);
           });
+        }
+      })
     }
      else  if (event === "lapsLevelIncome") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
-      const insertSql = `INSERT INTO lapsLevelIncome (receiver, user_idn,sender,tokenQty,incomeAmt,incomeLevel,packageAmt, transaction_id, block_timestamp,block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?)`;
-          const values = [returnValues.receiver,userRegId,returnValues.sender,returnValues.tokenQty ,returnValues.incomeAmt,returnValues.incomeLevel,returnValues.packageAmt ,transactionHash,newTimestamp,blockNumber];
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`Event lapsLevelIncome : ${transactionHash}`);
-          });
+       
+       const values = [returnValues.receiver,userRegId,returnValues.sender,returnValues.tokenQty ,returnValues.incomeAmt,returnValues.incomeLevel,returnValues.packageAmt ,transactionHash,newTimestamp,blockNumber];
+      const checkStr = `Select id from lapsLevelIncome where receiver = ?, user_idn =?,sender = ? ,tokenQty = ?, incomeAmt = ? ,incomeLevel = ?,packageAmt = ?, transaction_id = ?, block_timestamp = ? ,block_number = ?`;
+      conn.query(checkStr,values, (err , res) => {
+        if(res.length==0)
+        {
+          const insertSql = `INSERT INTO lapsLevelIncome (receiver, user_idn,sender,tokenQty,incomeAmt,incomeLevel,packageAmt, transaction_id, block_timestamp,block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?)`;
+              conn.query(insertSql, values, (insertErr) => {
+                if (insertErr) return console.error("Insert Error:", insertErr);
+                console.log(`Event lapsLevelIncome : ${transactionHash}`);
+              });
+        }
+        });
      }
      else  if (event === "userIncome") {
        let userRegId=await getuserIdnId(returnValues.receiver) || "0000";
-      const insertSql = `INSERT INTO userIncome (receiver, user_idn,sender,tokenQty,incomeAmt,incomeLevel,packageAmt,incomeType, transaction_id, block_timestamp,block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?,?)`;
-          const values = [returnValues.receiver,userRegId,returnValues.sender,returnValues.incomeAmt ,returnValues.incomeAmt,returnValues.incomeLevel,returnValues.packageAmt,returnValues.incomeType ,transactionHash,newTimestamp,blockNumber];
-          conn.query(insertSql, values, (insertErr) => {
+      const values = [returnValues.receiver,userRegId,returnValues.sender,returnValues.incomeAmt ,returnValues.incomeAmt,returnValues.incomeLevel,returnValues.packageAmt,returnValues.incomeType ,transactionHash,newTimestamp,blockNumber];
+      const checkSql=`Select id from userIncome where receiver=?, user_idn=?,sender=?,tokenQty=?,incomeAmt=?,incomeLevel=?,packageAmt=?,incomeType=?, transaction_id=?, block_timestamp=?,block_number=? `;
+      conn.query(checkSql, values, (err,res)=>{
+      if (err) return console.error("Insert Error:", insertErr);
+      if(res.length==0)
+      {
+        const insertSql = `INSERT INTO userIncome (receiver, user_idn,sender,tokenQty,incomeAmt,incomeLevel,packageAmt,incomeType, transaction_id, block_timestamp,block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?,?)`;
+        conn.query(insertSql, values, (insertErr) => {
             if (insertErr) return console.error("Insert Error:", insertErr);
             console.log(`Event userIncome : ${transactionHash}`);
           });
+        }
+        })
      }
      else  if (event === "withdrawal") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
@@ -139,21 +159,36 @@ async function processEvents(events) {
      }
      else  if (event === "magicBooster") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
-        const insertSql = `INSERT INTO magicBooster (lastStakeId,user, user_idn,stackamt,unstackAmt,startdate,enddate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?,?)`;
-          const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
-          conn.query(insertSql, values, (insertErr) => {
+        const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
+        const checkSql=`Select id from magicBooster where lastStakeId= ?,user = ?, user_idn= ? ,stackamt = ?,unstackAmt = ?,startdate = ?,enddate = ?,transaction_id= ? ,block_timestamp =?,block_number =?)`;
+        conn.query(checkSql,values,(errs,res)=>{
+         if(errs) return console.error(errs); 
+         if(res.length==0)
+         {
+          const insertSql = `INSERT INTO magicBooster (lastStakeId,user, user_idn,stackamt,unstackAmt,startdate,enddate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?,?)`;
+        conn.query(insertSql, values, (insertErr) => {
             if (insertErr) return console.error("Insert Error:", insertErr);
             console.log(`Event magicBooster : ${transactionHash}`);
           });
+          
+         }
+        })
      }
       else  if (event === "magicBoosterUnstack") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
-        const insertSql = `INSERT INTO magicBoosterUnstack (lastStakeId,user, user_idn,stackamt,unstackAmt,unstackDate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?)`;
-          const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
-          conn.query(insertSql, values, (insertErr) => {
+         const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
+         const checkSql = `Select id from magicBoosterUnstack where lastStakeId=?,user=?, user_idn=?,stackamt=?,unstackAmt=?,unstackDate=?,transaction_id=? ,block_timestamp=?,block_number=? `;
+         conn.query(checkSql,values,(errs,res)=>{
+          if(errs) return console.log("Error in magicBooster",errs);
+          if(res.length==0)
+          {
+              const insertSql = `INSERT INTO magicBoosterUnstack (lastStakeId,user, user_idn,stackamt,unstackAmt,unstackDate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?)`;
+           conn.query(insertSql, values, (insertErr) => {
             if (insertErr) return console.error("Insert Error:", insertErr);
             console.log(`Event magicBoosterUnstack : ${transactionHash}`);
-          });
+           });
+          }
+         })
      }
   }
 }
