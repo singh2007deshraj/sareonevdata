@@ -101,6 +101,21 @@ async function processEvents(events) {
         }
       });
     }
+    else  if (event === "saleTokenE") {
+      let userRegId=await getuserIdnId(returnValues.user) || "0000";
+      const values = [returnValues.user,userRegId,returnValues.amount,returnValues.adminAmt,transactionHash,newTimestamp,blockNumber,returnValues.tokenQty ,returnValues.tokenRate ];
+      const checkSql = "SELECT id FROM saleTokenE WHERE user=?, user_idn =?, amount = ?,adminAmt = ?, transaction_id=?, block_timestamp=?,block_number=?, tokenQty=?, tokenRate=? ";
+      conn.query(checkSql, values, (err, res) => {
+        if (err) return console.error("DB Error:", err);
+        if (res.length === 0) {
+          const insertSql = `INSERT INTO saleTokenE (user, user_idn, amount,adminAmt, transaction_id, block_timestamp,block_number, tokenQty, tokenRate) VALUES (?, ?, ?, ?, ?, ?, ?,?,? )`;
+          conn.query(insertSql, values, (insertErr) => {
+            if (insertErr) return console.error("Insert Error:", insertErr);
+            console.log(`token Buy: ${transactionHash}`);
+          });
+        }
+      });
+    }
     else  if (event === "Usertokenrecive") {
       let userRegId=await getuserIdnId(returnValues.user) || "0000";
       const checkSql = "SELECT id FROM Usertokenrecive WHERE user = ? AND user_idn = ? AND fromUser = ? AND transaction_id = ? AND block_timestamp = ? AND block_number = ? AND tokenQty = ? AND tokenRate = ? AND recType = ?";
