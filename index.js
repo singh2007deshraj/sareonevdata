@@ -165,7 +165,7 @@ async function processEvents(events) {
      }
      else  if (event === "withdrawal") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
-        const insertSql = `INSERT INTO withdrawal (user, user_idn,usdtAmount,transaction_id , block_timestamp,block_number) VALUES (?,?,?,?,?,?)`;
+        const insertSql = `INSERT INTO withdrawal (user, user_idn,usdtAmount,adminAmount,transaction_id , block_timestamp,block_number) VALUES (?,?,?,?,?,?)`;
           const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
           conn.query(insertSql, values, (insertErr) => {
             if (insertErr) return console.error("Insert Error:", insertErr);
