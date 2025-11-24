@@ -174,7 +174,7 @@ async function processEvents(events) {
      }
      else  if (event === "magicBooster") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
-        const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
+        const values = [returnValues.lastStakeId,returnValues.user,userRegId,returnValues.stackamt,returnValues.unstackAmt ,returnValues.startdate ,returnValues.enddate ,transactionHash,newTimestamp,blockNumber];
         const checkSql=`Select id from magicBooster where lastStakeId= ? and user = ? and  user_idn= ? and stackamt = ? and unstackAmt = ? and startdate = ? and enddate = ? and transaction_id= ? and block_timestamp =? and block_number =?)`;
         conn.query(checkSql,values,(errs,res)=>{
          if(errs) return console.error(errs); 
@@ -191,7 +191,7 @@ async function processEvents(events) {
      }
       else  if (event === "magicBoosterUnstack") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
-         const values = [returnValues.user,userRegId,returnValues.usdtAmount,returnValues.adminAmount ,transactionHash,newTimestamp,blockNumber];
+         const values = [returnValues.lastStakeId,returnValues.user,userRegId,returnValues.stackamt,returnValues.unstackAmt,returnValues.unstackDate ,transactionHash,newTimestamp,blockNumber];
          const checkSql = `Select id from magicBoosterUnstack where lastStakeId=?  and user=? and  user_idn=? and stackamt=? and unstackAmt=? and unstackDate=? and transaction_id=? and block_timestamp=? and block_number=? `;
          conn.query(checkSql,values,(errs,res)=>{
           if(errs) return console.log("Error in magicBooster",errs);
@@ -207,7 +207,7 @@ async function processEvents(events) {
      }
        else  if (event === "claimMBoosterIncome") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
-         const values = [returnValues.user,userRegId,returnValues.stackamt,returnValues.perdayIncome ,transactionHash,newTimestamp,blockNumber];
+         const values = [returnValues.lastStakeId,returnValues.user,userRegId,returnValues.stackamt,returnValues.perdayIncome,returnValues.unstackDate ,transactionHash,newTimestamp,blockNumber];
          const checkSql = `Select id from claimMBoosterIncome where lastStakeId=?  and user=? and  user_idn=? and stackamt=? and perdayIncome=? and unstackDate=? and transaction_id=? and block_timestamp=? and block_number=? `;
          conn.query(checkSql,values,(errs,res)=>{
           if(errs) return console.log("Error in magicBooster",errs);
