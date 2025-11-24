@@ -175,7 +175,7 @@ async function processEvents(events) {
      else  if (event === "magicBooster") {
        let userRegId=await getuserIdnId(returnValues.user) || "0000";
         const values = [returnValues.lastStakeId,returnValues.user,userRegId,returnValues.stackamt,returnValues.unstackAmt ,returnValues.startdate ,returnValues.enddate ,transactionHash,newTimestamp,blockNumber];
-        const checkSql=`Select id from magicBooster where lastStakeId= ? and user = ? and  user_idn= ? and stackamt = ? and unstackAmt = ? and startdate = ? and enddate = ? and transaction_id= ? and block_timestamp =? and block_number =?)`;
+        const checkSql=`Select id from magicBooster where lastStakeId= ? and user = ? and  user_idn= ? and stackamt = ? and unstackAmt = ? and startdate = ? and enddate = ? and transaction_id= ? and block_timestamp =? and block_number =?`;
         conn.query(checkSql,values,(errs,res)=>{
          if(errs) return console.error(errs); 
          if(res.length==0)
