@@ -205,6 +205,22 @@ async function processEvents(events) {
           }
          })
      }
+       else  if (event === "claimMBoosterIncome") {
+       let userRegId=await getuserIdnId(returnValues.user) || "0000";
+         const values = [returnValues.user,userRegId,returnValues.stackamt,returnValues.perdayIncome ,transactionHash,newTimestamp,blockNumber];
+         const checkSql = `Select id from claimMBoosterIncome where lastStakeId=?  and user=? and  user_idn=? and stackamt=? and perdayIncome=? and unstackDate=? and transaction_id=? and block_timestamp=? and block_number=? `;
+         conn.query(checkSql,values,(errs,res)=>{
+          if(errs) return console.log("Error in magicBooster",errs);
+          if(res.length==0)
+          {
+              const insertSql = `INSERT INTO claimMBoosterIncome (lastStakeId,user, user_idn,stackamt,perdayIncome,unstackDate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?)`;
+           conn.query(insertSql, values, (insertErr) => {
+            if (insertErr) return console.error("Insert Error:", insertErr);
+            console.log(`Event magicBoosterUnstack : ${transactionHash}`);
+           });
+          }
+         })
+     }
   }
 }
 
