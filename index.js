@@ -22,8 +22,8 @@ async function listEvent() {
   let lastSyncBlock = Number(await getLastSyncBlock());
   console.log(lastSyncBlock,"lastSyncBlock")
   let latestBlock = Number(await web3.eth.getBlockNumber());
-    // console.log(latestBlock,"latestBlock")
-  let toBlock =latestBlock > lastSyncBlock + 1000 ? lastSyncBlock + 1000 : latestBlock;
+  console.log(latestBlock,"latestBlock")
+  let toBlock =latestBlock > lastSyncBlock + 300 ? lastSyncBlock + 300 : latestBlock;
     console.log(toBlock,"toBlock")
   let events = await getEventReciept(lastSyncBlock, toBlock);
   await processEvents(events);
