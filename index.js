@@ -21,6 +21,8 @@ const contract = new web3.eth.Contract(dexABI_MLM, process.env.CONTRACT_ADDRESS)
 async function listEvent() {
   let lastSyncBlock = Number(await getLastSyncBlock());
   let latestBlock = Number(await web3.eth.getBlockNumber());
+  console.log("lastSyncBlock : ", lastSyncBlock);
+  console.log("latestBlock : ", latestBlock);
   // Always move forward by at least 1 block
   let fromBlock = lastSyncBlock + 1;
   if (fromBlock > latestBlock) {
@@ -29,10 +31,11 @@ async function listEvent() {
     return setTimeout(listEvent, 15000);
   }
   // Limit batch size (300)
-  let toBlock = fromBlock + 500;
+  let toBlock = fromBlock + 100;
   if (toBlock > latestBlock) toBlock = latestBlock;
   console.log("New block");
   console.log({ fromBlock, toBlock });
+  await updateBlock(toBlock);
   let events = await getEventReciept(fromBlock, toBlock);
   await processEvents(events);
   await updateBlock(toBlock);
