@@ -18,38 +18,81 @@ const web3 = new Web3(
 
 const contract = new web3.eth.Contract(dexABI_MLM, process.env.CONTRACT_ADDRESS);
 
-async function listEvent() {
-  let lastSyncBlock = Number(await getLastSyncBlock());
-  let latestBlock = Number(await web3.eth.getBlockNumber());
-  console.log("lastSyncBlock : ", lastSyncBlock);
-  console.log("latestBlock : ", latestBlock);
-  // Always move forward by at least 1 block
-  let fromBlock = lastSyncBlock + 1;
-  if (fromBlock > latestBlock) {
-    // No new blocks → wait and retry
-    console.log("No new blocks...");
-    return setTimeout(listEvent, 10000);
-  }
-  // Limit batch size (300)
-  let toBlock = fromBlock + 100;
-  if (toBlock > latestBlock) toBlock = latestBlock;
-  console.log(new Date());
-  console.log("New block");
-  console.log({ fromBlock, toBlock });
-  let events = await getEventReciept(fromBlock, toBlock);
-  await processEvents(events);
-  await updateBlock(toBlock);
-  setTimeout(listEvent, 10000);
-}
+// async function listEvent() {
+//   let lastSyncBlock = Number(await getLastSyncBlock());
+//   let latestBlock = Number(await web3.eth.getBlockNumber());
+//   console.log("lastSyncBlock : ", lastSyncBlock);
+//   console.log("latestBlock : ", latestBlock);
+//   // Always move forward by at least 1 block
+//   let fromBlock = lastSyncBlock + 1;
+//   if (fromBlock > latestBlock) {
+//     // No new blocks → wait and retry
+//     console.log("No new blocks...");
+//     return setTimeout(listEvent, 10000);
+//   }
+//   // Limit batch size (300)
+//   let toBlock = fromBlock + 100;
+//   if (toBlock > latestBlock) toBlock = latestBlock;
+//   console.log(new Date());
+//   console.log("New block");
+//   console.log({ fromBlock, toBlock });
+//   let events = await getEventReciept(fromBlock, toBlock);
+//   await processEvents(events);
+//   await updateBlock(toBlock);
+//   setTimeout(listEvent, 10000);
+// }
 
-cron.schedule("1 * * * *", async () => {
-  try {
-    await listEvent();   // ← always await async functions
-    console.log("Cron job executed successfully");
-  } catch (err) {
-    console.error("Cron job error:", err);
+// cron.schedule("1 * * * *", async () => {
+//   try {
+//     await listEvent();   // ← always await async functions
+//     console.log("Cron job executed successfully");
+//   } catch (err) {
+//     console.error("Cron job error:", err);
+//   }
+// });
+
+setInterval(() => {
+  listEvent();
+}, 10000);
+async function listEvent() {
+  if (isProcessing) {
+    console.log("⏳ Still processing... Skipping loop");
+    return;
   }
-});
+
+  isProcessing = true;
+
+  try {
+    let lastSyncBlock = Number(await getLastSyncBlock());
+    let latestBlock = Number(await web3.eth.getBlockNumber());
+
+    console.log("lastSyncBlock:", lastSyncBlock);
+    console.log("latestBlock:", latestBlock);
+
+    let fromBlock = lastSyncBlock + 1;
+    if (fromBlock > latestBlock) {
+      console.log("⛔ No new blocks...");
+      return;
+    }
+
+    let toBlock = fromBlock + 100;
+    if (toBlock > latestBlock) toBlock = latestBlock;
+
+    console.log("⏱ Fetching event blocks:", { fromBlock, toBlock });
+
+    const events = await getEventReciept(fromBlock, toBlock);
+    await processEvents(events);
+    await updateBlock(toBlock);
+
+    console.log("✅ Sync complete:", new Date().toLocaleString());
+  }
+  catch (err) {
+    console.error("❌ listEvent ERROR:", err);
+  }
+  finally {
+    isProcessing = false;
+  }
+}
 
 
 async function updateBlock(updatedBlock) {
@@ -306,7 +349,6 @@ function toFixed(x) {
 function round(number) {
   return Math.round(number * 1000) / 1000;
 }
-
 
 listEvent();
 app.get("/", (req, res) => res.send("Server running!"));
