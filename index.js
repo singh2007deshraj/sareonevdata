@@ -33,6 +33,7 @@ async function listEvent() {
   // Limit batch size (300)
   let toBlock = fromBlock + 100;
   if (toBlock > latestBlock) toBlock = latestBlock;
+  console.log(new Date());
   console.log("New block");
   console.log({ fromBlock, toBlock });
   let events = await getEventReciept(fromBlock, toBlock);
@@ -40,6 +41,16 @@ async function listEvent() {
   await updateBlock(toBlock);
   setTimeout(listEvent, 10000);
 }
+
+cron.schedule("1 * * * *", async () => {
+  try {
+    await listEvent();   // ← always await async functions
+    console.log("Cron job executed successfully");
+  } catch (err) {
+    console.error("Cron job error:", err);
+  }
+});
+
 
 async function updateBlock(updatedBlock) {
   return new Promise((resolve, reject) => {
