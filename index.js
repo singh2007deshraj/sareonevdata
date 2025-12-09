@@ -54,6 +54,7 @@ const contract = new web3.eth.Contract(dexABI_MLM, process.env.CONTRACT_ADDRESS)
 setInterval(() => {
   listEvent();
 }, 10000);
+let isProcessing = false;
 async function listEvent() {
   if (isProcessing) {
     console.log("⏳ Still processing... Skipping loop");
