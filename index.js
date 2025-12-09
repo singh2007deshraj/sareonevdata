@@ -28,17 +28,18 @@ async function listEvent() {
   if (fromBlock > latestBlock) {
     // No new blocks → wait and retry
     console.log("No new blocks...");
-    return setTimeout(listEvent, 15000);
+    return setTimeout(listEvent, 10000);
   }
   // Limit batch size (300)
-  let toBlock = fromBlock + 100;
+  // let toBlock = fromBlock + 100;
+  let toBlock = latestBlock - lastSyncBlock;
   if (toBlock > latestBlock) toBlock = latestBlock;
   console.log("New block");
   console.log({ fromBlock, toBlock });
-  await updateBlock(toBlock);
   let events = await getEventReciept(fromBlock, toBlock);
   await processEvents(events);
-  setTimeout(listEvent, 15000);
+  await updateBlock(toBlock);
+  setTimeout(listEvent, 10000);
 }
 
 async function updateBlock(updatedBlock) {
