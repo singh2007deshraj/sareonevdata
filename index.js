@@ -38,8 +38,7 @@ async function listEvent() {
   await updateBlock(toBlock);
   let events = await getEventReciept(fromBlock, toBlock);
   await processEvents(events);
-  await updateBlock(toBlock);
-  setTimeout(listEvent, 3000);
+  setTimeout(listEvent, 15000);
 }
 
 async function updateBlock(updatedBlock) {
