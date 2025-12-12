@@ -80,7 +80,7 @@ async function listEvent() {
 }
 
 /* Cron: run at minute 1 of every hour (keeps running) */
-cron.schedule("1 * * * *", async () => {
+cron.schedule("* * * * *", async () => {
   try {
     await listEvent();
     console.log("Cron job executed successfully");
