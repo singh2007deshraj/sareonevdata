@@ -1,3 +1,4 @@
+// final_safe_events_processor.js
 const Web3 = require("web3").default;
 const express = require("express");
 const cors = require("cors");
@@ -18,269 +19,343 @@ const web3 = new Web3(
 
 const contract = new web3.eth.Contract(dexABI_MLM, process.env.CONTRACT_ADDRESS);
 
-async function listEvent() {
-  let lastSyncBlock = Number(await getLastSyncBlock());
-  let latestBlock = Number(await web3.eth.getBlockNumber());
-  console.log("lastSyncBlock : ", lastSyncBlock);
-  console.log("latestBlock : ", latestBlock);
-  // Always move forward by at least 1 block
-  let fromBlock = lastSyncBlock + 1;
-  if (fromBlock > latestBlock) {
-    // No new blocks → wait and retry
-    console.log("No new blocks...");
-    return setTimeout(listEvent, 10000);
-  }
-  // Limit batch size (300)
-  let toBlock = fromBlock + 100;
-  if (toBlock > latestBlock) toBlock = latestBlock;
-  console.log(new Date());
-  console.log("New block");
-  console.log({ fromBlock, toBlock });
-  let events = await getEventReciept(fromBlock, toBlock);
-  await processEvents(events);
-  await updateBlock(toBlock);
-  //setTimeout(listEvent, 10000);
+/* --------------------------
+   Helper: Promise wrapper for conn.query
+   -------------------------- */
+function runQuery(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    conn.query(sql, params, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
+    });
+  });
 }
 
+/* --------------------------
+   Safe helper to fetch user_idn (falls back to "0000")
+   -------------------------- */
+async function safeUserIdn(addr) {
+  try {
+    if (!addr) return "0000";
+    const idn = await getuserIdnId(addr);
+    return idn || "0000";
+  } catch (e) {
+    console.error("safeUserIdn error:", e, addr);
+    return "0000";
+  }
+}
+
+/* --------------------------
+   Main event-listing & scheduling
+   -------------------------- */
+async function listEvent() {
+  try {
+    let lastSyncBlock = Number(await getLastSyncBlock());
+    let latestBlock = Number(await web3.eth.getBlockNumber());
+    console.log("lastSyncBlock : ", lastSyncBlock);
+    console.log("latestBlock : ", latestBlock);
+    // Always move forward by at least 1 block
+    let fromBlock = lastSyncBlock + 1;
+    if (fromBlock > latestBlock) {
+      // No new blocks → wait and retry
+      console.log("No new blocks...");
+      return setTimeout(listEvent, 10000);
+    }
+    // Limit batch size (100)
+    let toBlock = fromBlock + 100;
+    if (toBlock > latestBlock) toBlock = latestBlock;
+    console.log(new Date());
+    console.log("New block");
+    console.log({ fromBlock, toBlock });
+    let events = await getEventReciept(fromBlock, toBlock);
+    if (events && events.length > 0) {
+      await processEvents(events);
+    } else {
+      console.log("No events in range");
+    }
+    await updateBlock(toBlock);
+  } catch (err) {
+    console.error("listEvent error:", err);
+  }
+}
+
+/* Cron: run at minute 1 of every hour (keeps running) */
 cron.schedule("1 * * * *", async () => {
   try {
-    await listEvent();   // ← always await async functions
+    await listEvent();
     console.log("Cron job executed successfully");
   } catch (err) {
     console.error("Cron job error:", err);
   }
 });
 
+// initial run at startup
 listEvent();
 
-
-// setInterval(() => {
-//   listEvent();
-// }, 10000);
-// let isProcessing = false;
-// async function listEvent() {
-//   if (isProcessing) {
-//     console.log("⏳ Still processing... Skipping loop");
-//     return;
-//   }
-
-//   isProcessing = true;
-
-//   try {
-//     let lastSyncBlock = Number(await getLastSyncBlock());
-//     let latestBlock = Number(await web3.eth.getBlockNumber());
-
-//     console.log("lastSyncBlock:", lastSyncBlock);
-//     console.log("latestBlock:", latestBlock);
-
-//     let fromBlock = lastSyncBlock + 1;
-//     if (fromBlock > latestBlock) {
-//       console.log("⛔ No new blocks...");
-//       return;
-//     }
-
-//     let toBlock = fromBlock + 100;
-//     if (toBlock > latestBlock) toBlock = latestBlock;
-//     console.log("⏱ Fetching event blocks:", { fromBlock, toBlock });
-//     const events = await getEventReciept(fromBlock, toBlock);
-//     await processEvents(events);
-//     await updateBlock(toBlock);
-//     console.log("✅ Sync complete:", new Date().toLocaleString());
-//   }
-//   catch (err) {
-//     console.error("❌ listEvent ERROR:", err);
-//   }
-//   finally {
-//     isProcessing = false;
-//   }
-// }
-
-
+/* --------------------------
+   Update last processed block
+   -------------------------- */
 async function updateBlock(updatedBlock) {
-  return new Promise((resolve, reject) => {
-    conn.query(
-      "UPDATE eventBlock SET latest_block = ?", [updatedBlock], (err, result) => {
-        if (err) {
-          console.error("Update Error:", err);
-          return reject(err);
-        }
-        console.log("✅ Updated block:", updatedBlock);
-        resolve(result);
-      }
-    );
-  });
+  return runQuery("UPDATE eventBlock SET latest_block = ?", [updatedBlock])
+    .then((res) => {
+      console.log("✅ Updated block:", updatedBlock);
+      return res;
+    })
+    .catch((err) => {
+      console.error("Update Error:", err);
+      throw err;
+    });
 }
+
+/* --------------------------
+   NEW: safe processEvents + dispatcher
+   -------------------------- */
 async function processEvents(events) {
   for (let i = 0; i < events.length; i++) {
-    const { blockNumber, transactionHash, returnValues, event } = events[i];
-    console.log(blockNumber, transactionHash, returnValues, event, "event");
-    const timestamp = await getTimestamp(blockNumber);
-    const newTimestamp = timestamp;
-    if (event === "Registration") {
-      let referralIdn = await getuserIdnId(returnValues.referrer) || "0000";
-      const checkSql = "SELECT id FROM Registration WHERE user = ?";
-      conn.query(checkSql, [returnValues.user], (err, res) => {
-        if (err) return console.error("DB Error:", err);
-        if (res.length === 0) {
-          const randomNumber = Math.floor(Math.random() * 10000000).toString().padStart(7, '0');
-          const userRegId = randomNumber;
-          const insertSql = `INSERT INTO Registration (userId, user_idn, user, referrer, referrerId,block_timestamp, transaction_id, block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?)`;
-          const values = [returnValues.userId, userRegId, returnValues.user, returnValues.referrer, referralIdn, newTimestamp, transactionHash, blockNumber,];
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`User registered: ${returnValues.user}`);
-          });
-        }
+    const ev = events[i];
+    try {
+      await handleEvent(ev);
+    } catch (err) {
+      console.error("Error processing event (continuing):", err, {
+        index: i,
+        transactionHash: ev && ev.transactionHash,
+        event: ev && ev.event,
       });
-    }
-    else if (event === "buyBoosting") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const checkSql = "SELECT id FROM buyBoosting WHERE transaction_id = ?";
-      conn.query(checkSql, [transactionHash], (err, res) => {
-        if (err) return console.error("DB Error:", err);
-        if (res.length === 0) {
-          const insertSql = `INSERT INTO buyBoosting (user, user_idn, amount,levelsAdded, transaction_id, block_timestamp,block_number) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-          const values = [returnValues.user, userRegId, returnValues.amount, returnValues.levelsAdded, transactionHash, newTimestamp, blockNumber];
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`buy Boosting: ${transactionHash}`);
-          });
-        }
-      });
-    }
-    else if (event === "buyToken") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const values = [returnValues.user, userRegId, returnValues.amount, transactionHash, newTimestamp, blockNumber, returnValues.tokenQty, returnValues.tokenRate];
-      const checkSql = "SELECT id FROM buyToken WHERE user=? and user_idn=? and amount=? and transaction_id=?  and block_timestamp=? and block_number=? and  tokenQty=? and  tokenRate=?";
-      conn.query(checkSql, values, (err, res) => {
-        if (err) return console.error("DB Error:", err);
-        if (res.length === 0) {
-          const insertSql = `INSERT INTO buyToken (user, user_idn, amount, transaction_id, block_timestamp,block_number, tokenQty, tokenRate) VALUES (?, ?, ?, ?, ?, ?, ?,?)`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`token Buy: ${transactionHash}`);
-          });
-        }
-      });
-    }
-    else if (event === "saleTokenE") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const values = [returnValues.user, userRegId, returnValues.amount, returnValues.adminAmt, transactionHash, newTimestamp, blockNumber, returnValues.tokenQty, returnValues.tokenRate];
-      const checkSql = "SELECT id FROM saleTokenE WHERE user=?  and user_idn =? and amount = ?  and adminAmt = ? and  transaction_id=? and block_timestamp=? and block_number=? and  tokenQty=? and tokenRate=? ";
-      conn.query(checkSql, values, (err, res) => {
-        if (err) return console.error("DB Error:", err);
-        if (res.length === 0) {
-          const insertSql = `INSERT INTO saleTokenE (user, user_idn, amount,adminAmt, transaction_id, block_timestamp,block_number, tokenQty, tokenRate) VALUES (?, ?, ?, ?, ?, ?, ?,?,? )`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`token Buy: ${transactionHash}`);
-          });
-        }
-      });
-    }
-    else if (event === "Usertokenrecive") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const checkSql = "SELECT id FROM Usertokenrecive WHERE user = ? AND user_idn = ? AND fromUser = ? AND transaction_id = ? AND block_timestamp = ? AND block_number = ? AND tokenQty = ? AND tokenRate = ? AND recType = ?";
-      const values = [returnValues.user, userRegId, returnValues.fromUser, transactionHash, newTimestamp, blockNumber, returnValues.tokenQty, returnValues.tokenRate, returnValues.recType];
-      conn.query(checkSql, values, (err, res) => {
-        if (err) return console.error("DB Error:", err);
-        if (res.length === 0) {
-          const insertSql = `INSERT INTO Usertokenrecive(user, user_idn,fromUser, transaction_id, block_timestamp,block_number, tokenQty, tokenRate,recType) VALUES (?, ?, ?, ?, ?, ?, ?,?,?)`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`Event Usertokenrecive: ${transactionHash}`);
-          });
-        }
-      })
-    }
-    else if (event === "lapsLevelIncome") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-
-      const values = [returnValues.receiver, userRegId, returnValues.sender, returnValues.tokenQty, returnValues.incomeAmt, returnValues.incomeLevel, returnValues.packageAmt, transactionHash, newTimestamp, blockNumber];
-      const checkStr = `Select id from lapsLevelIncome where receiver = ? and  user_idn =?  and sender = ?  and tokenQty = ? and incomeAmt = ?  and incomeLevel = ? and packageAmt = ?  and transaction_id = ? and  block_timestamp = ? and block_number = ?`;
-      conn.query(checkStr, values, (err, res) => {
-        if (res.length == 0) {
-          const insertSql = `INSERT INTO lapsLevelIncome (receiver, user_idn,sender,tokenQty,incomeAmt,incomeLevel,packageAmt, transaction_id, block_timestamp,block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?)`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`Event lapsLevelIncome : ${transactionHash}`);
-          });
-        }
-      });
-    }
-    else if (event === "userIncome") {
-      let userRegId = await getuserIdnId(returnValues.receiver) || "0000";
-      const values = [returnValues.receiver, userRegId, returnValues.sender, returnValues.incomeAmt, returnValues.incomeAmt, returnValues.incomeLevel, returnValues.packageAmt, returnValues.incomeType, transactionHash, newTimestamp, blockNumber];
-      const checkSql = `Select id from userIncome where receiver=? and user_idn=? and sender=? and tokenQty=?  and incomeAmt=?  and incomeLevel=?   and packageAmt=? and incomeType=? and transaction_id=?  and  block_timestamp=? and block_number=? `;
-      conn.query(checkSql, values, (err, res) => {
-        if (err) return console.error("Insert Error:", insertErr);
-        if (res.length == 0) {
-          const insertSql = `INSERT INTO userIncome (receiver, user_idn,sender,tokenQty,incomeAmt,incomeLevel,packageAmt,incomeType, transaction_id, block_timestamp,block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?,?)`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`Event userIncome : ${transactionHash}`);
-          });
-        }
-      })
-    }
-    else if (event === "withdrawal") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const insertSql = `INSERT INTO withdrawal (user, user_idn,usdtAmount,adminAmount,transaction_id , block_timestamp,block_number) VALUES (?,?,?,?,?,?,?)`;
-      const values = [returnValues.user, userRegId, returnValues.usdtAmount, returnValues.adminAmount, transactionHash, newTimestamp, blockNumber];
-      conn.query(insertSql, values, (insertErr) => {
-        if (insertErr) return console.error("Insert Error:", insertErr);
-        console.log(`Event withdrawal : ${transactionHash}`);
-      });
-    }
-    else if (event === "magicBooster") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const values = [returnValues.lastStakeId, returnValues.user, userRegId, returnValues.stackamt, returnValues.unstackAmt, returnValues.startdate, returnValues.enddate, returnValues.status, transactionHash, newTimestamp, blockNumber];
-      const checkSql = `Select id from magicBooster where lastStakeId= ? and user = ? and  user_idn= ? and stackamt = ? and unstackAmt = ? and startdate = ? and enddate = ? and status = ? and transaction_id= ? and block_timestamp =? and block_number =?`;
-      conn.query(checkSql, values, (errs, res) => {
-        if (errs) return console.error(errs);
-        if (res.length == 0) {
-          const insertSql = `INSERT INTO magicBooster (lastStakeId,user, user_idn,stackamt,unstackAmt,startdate,enddate,status,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?,?,?)`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`Event magicBooster : ${transactionHash}`);
-          });
-
-        }
-      })
-    }
-    else if (event === "magicBoosterUnstack") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const values = [returnValues.lastStakeId, returnValues.user, userRegId, returnValues.stackamt, returnValues.unstackAmt, returnValues.unstackDate, transactionHash, newTimestamp, blockNumber];
-      const checkSql = `Select id from magicBoosterUnstack where lastStakeId=?  and user=? and  user_idn=? and stackamt=? and unstackAmt=? and unstackDate=? and transaction_id=? and block_timestamp=? and block_number=? `;
-      conn.query(checkSql, values, (errs, res) => {
-        if (errs) return console.log("Error in magicBooster", errs);
-        if (res.length == 0) {
-          const insertSql = `INSERT INTO magicBoosterUnstack (lastStakeId,user, user_idn,stackamt,unstackAmt,unstackDate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?)`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`Event magicBoosterUnstack : ${transactionHash}`);
-          });
-        }
-      })
-    }
-    else if (event === "claimMBoosterIncome") {
-      let userRegId = await getuserIdnId(returnValues.user) || "0000";
-      const values = [returnValues.lastStakeId, returnValues.user, userRegId, returnValues.stackamt, returnValues.perdayIncome, returnValues.unstackDate, transactionHash, newTimestamp, blockNumber];
-      const checkSql = `Select id from claimMBoosterIncome where lastStakeId=?  and user=? and  user_idn=? and stackamt=? and perdayIncome=? and unstackDate=? and transaction_id=? and block_timestamp=? and block_number=? `;
-      conn.query(checkSql, values, (errs, res) => {
-        if (errs) return console.log("Error in magicBooster", errs);
-        if (res.length == 0) {
-          const insertSql = `INSERT INTO claimMBoosterIncome (lastStakeId,user, user_idn,stackamt,perdayIncome,unstackDate,transaction_id ,block_timestamp,block_number) VALUES (?,?,?,?,?,?,?,?,?)`;
-          conn.query(insertSql, values, (insertErr) => {
-            if (insertErr) return console.error("Insert Error:", insertErr);
-            console.log(`Event magicBoosterUnstack : ${transactionHash}`);
-          });
-        }
-      })
+      // continue to next event
     }
   }
 }
 
+async function handleEvent(eventObj) {
+  const { blockNumber, transactionHash, returnValues, event } = eventObj;
+  console.log(blockNumber, transactionHash, returnValues, event, "event");
+  const timestamp = await getTimestamp(blockNumber);
+  const ts = timestamp;
+
+  switch (event) {
+    case "Registration":
+      return handle_Registration(returnValues, transactionHash, ts, blockNumber);
+
+    case "buyBoosting":
+      return handle_buyBoosting(returnValues, transactionHash, ts, blockNumber);
+
+    case "buyToken":
+      return handle_buyToken(returnValues, transactionHash, ts, blockNumber);
+
+    case "saleTokenE":
+      return handle_saleTokenE(returnValues, transactionHash, ts, blockNumber);
+
+    case "Usertokenrecive":
+      return handle_Usertokenrecive(returnValues, transactionHash, ts, blockNumber);
+
+    case "lapsLevelIncome":
+      return handle_lapsLevelIncome(returnValues, transactionHash, ts, blockNumber);
+
+    case "userIncome":
+      return handle_userIncome(returnValues, transactionHash, ts, blockNumber);
+
+    case "withdrawal":
+      return handle_withdrawal(returnValues, transactionHash, ts, blockNumber);
+
+    case "magicBooster":
+      return handle_magicBooster(returnValues, transactionHash, ts, blockNumber);
+
+    case "magicBoosterUnstack":
+      return handle_magicBoosterUnstack(returnValues, transactionHash, ts, blockNumber);
+
+    case "claimMBoosterIncome":
+      return handle_claimMBoosterIncome(returnValues, transactionHash, ts, blockNumber);
+
+    default:
+      console.log("Unknown event:", event);
+      return;
+  }
+}
+
+/* --------------------------
+   Individual handlers (all promise-based)
+   -------------------------- */
+
+async function handle_Registration(rv, tx, ts, block) {
+  try {
+    const referralIdn = await safeUserIdn(rv.referrer);
+    const exists = await runQuery("SELECT id FROM Registration WHERE user = ?", [rv.user]);
+
+    if (exists && exists.length > 0) return; // already exists
+
+    const userRegId = Math.floor(Math.random() * 10000000).toString().padStart(7, "0");
+    const insertSql = `INSERT INTO Registration (userId, user_idn, user, referrer, referrerId, block_timestamp, transaction_id, block_number) VALUES (?, ?, ?, ?, ?, ?, ?,?)`;
+    const values = [rv.userId, userRegId, rv.user, rv.referrer, referralIdn, ts, tx, block];
+
+    await runQuery(insertSql, values);
+    console.log(`User registered: ${rv.user}`);
+  } catch (err) {
+    console.error("Registration handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_buyBoosting(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const checkSql = "SELECT id FROM buyBoosting WHERE transaction_id = ?";
+    const found = await runQuery(checkSql, [tx]);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO buyBoosting (user, user_idn, amount, levelsAdded, transaction_id, block_timestamp, block_number) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    const values = [rv.user, userRegId, rv.amount, rv.levelsAdded, tx, ts, block];
+    await runQuery(insertSql, values);
+    console.log(`buy Boosting saved: ${tx}`);
+  } catch (err) {
+    console.error("buyBoosting handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_buyToken(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const values = [rv.user, userRegId, rv.amount, tx, ts, block, rv.tokenQty, rv.tokenRate];
+    const checkSql = "SELECT id FROM buyToken WHERE user=? AND user_idn=? AND amount=? AND transaction_id=? AND block_timestamp=? AND block_number=? AND tokenQty=? AND tokenRate=?";
+    const found = await runQuery(checkSql, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO buyToken (user, user_idn, amount, transaction_id, block_timestamp, block_number, tokenQty, tokenRate) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`buyToken saved: ${tx}`);
+  } catch (err) {
+    console.error("buyToken handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_saleTokenE(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const values = [rv.user, userRegId, rv.amount, rv.adminAmt, tx, ts, block, rv.tokenQty, rv.tokenRate];
+    const checkSql = "SELECT id FROM saleTokenE WHERE user=? AND user_idn=? AND amount=? AND adminAmt=? AND transaction_id=? AND block_timestamp=? AND block_number=? AND tokenQty=? AND tokenRate=?";
+    const found = await runQuery(checkSql, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO saleTokenE (user, user_idn, amount, adminAmt, transaction_id, block_timestamp, block_number, tokenQty, tokenRate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`saleTokenE saved: ${tx}`);
+  } catch (err) {
+    console.error("saleTokenE handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_Usertokenrecive(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const values = [rv.user, userRegId, rv.fromUser, tx, ts, block, rv.tokenQty, rv.tokenRate, rv.recType];
+    const checkSql = "SELECT id FROM Usertokenrecive WHERE user=? AND user_idn=? AND fromUser=? AND transaction_id=? AND block_timestamp=? AND block_number=? AND tokenQty=? AND tokenRate=? AND recType=?";
+    const found = await runQuery(checkSql, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO Usertokenrecive(user, user_idn, fromUser, transaction_id, block_timestamp, block_number, tokenQty, tokenRate, recType) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`Usertokenrecive saved: ${tx}`);
+  } catch (err) {
+    console.error("Usertokenrecive handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_lapsLevelIncome(rv, tx, ts, block) {
+  try {
+    const idnTarget = rv.receiver || rv.user || rv.receiverAddress;
+    const userRegId = await safeUserIdn(idnTarget);
+    const values = [rv.receiver, userRegId, rv.sender, rv.tokenQty, rv.incomeAmt, rv.incomeLevel, rv.packageAmt, tx, ts, block];
+    const checkStr = `SELECT id FROM lapsLevelIncome WHERE receiver = ? AND user_idn = ? AND sender = ? AND tokenQty = ? AND incomeAmt = ? AND incomeLevel = ? AND packageAmt = ? AND transaction_id = ? AND block_timestamp = ? AND block_number = ?`;
+    const found = await runQuery(checkStr, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO lapsLevelIncome (receiver, user_idn, sender, tokenQty, incomeAmt, incomeLevel, packageAmt, transaction_id, block_timestamp, block_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`lapsLevelIncome saved: ${tx}`);
+  } catch (err) {
+    console.error("lapsLevelIncome handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_userIncome(rv, tx, ts, block) {
+  try {
+    const idnTarget = rv.receiver || rv.user || rv.to;
+    const userRegId = await safeUserIdn(idnTarget);
+    const tokenQty = rv.tokenQty || 0;
+    const values = [rv.receiver, userRegId, rv.sender, tokenQty, rv.incomeAmt, rv.incomeLevel, rv.packageAmt, rv.incomeType, tx, ts, block];
+    const checkSql = `SELECT id FROM userIncome WHERE receiver=? AND user_idn=? AND sender=? AND tokenQty=? AND incomeAmt=? AND incomeLevel=? AND packageAmt=? AND incomeType=? AND transaction_id=? AND block_timestamp=? AND block_number=?`;
+    const found = await runQuery(checkSql, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO userIncome (receiver, user_idn, sender, tokenQty, incomeAmt, incomeLevel, packageAmt, incomeType, transaction_id, block_timestamp, block_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`userIncome saved: ${tx}`);
+  } catch (err) {
+    console.error("userIncome handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_withdrawal(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const insertSql = `INSERT INTO withdrawal (user, user_idn, usdtAmount, adminAmount, transaction_id, block_timestamp, block_number) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    const values = [rv.user, userRegId, rv.usdtAmount, rv.adminAmount, tx, ts, block];
+    await runQuery(insertSql, values);
+    console.log(`withdrawal saved: ${tx}`);
+  } catch (err) {
+    console.error("withdrawal handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_magicBooster(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const values = [rv.lastStakeId, rv.user, userRegId, rv.stackamt, rv.unstackAmt, rv.startdate, rv.enddate, rv.status, tx, ts, block];
+    const checkSql = `SELECT id FROM magicBooster WHERE lastStakeId=? AND user=? AND user_idn=? AND stackamt=? AND unstackAmt=? AND startdate=? AND enddate=? AND status=? AND transaction_id=? AND block_timestamp=? AND block_number=?`;
+    const found = await runQuery(checkSql, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO magicBooster (lastStakeId, user, user_idn, stackamt, unstackAmt, startdate, enddate, status, transaction_id, block_timestamp, block_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`magicBooster saved: ${tx}`);
+  } catch (err) {
+    console.error("magicBooster handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_magicBoosterUnstack(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const values = [rv.lastStakeId, rv.user, userRegId, rv.stackamt, rv.unstackAmt, rv.unstackDate, tx, ts, block];
+    const checkSql = `SELECT id FROM magicBoosterUnstack WHERE lastStakeId=? AND user=? AND user_idn=? AND stackamt=? AND unstackAmt=? AND unstackDate=? AND transaction_id=? AND block_timestamp=? AND block_number=?`;
+    const found = await runQuery(checkSql, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO magicBoosterUnstack (lastStakeId, user, user_idn, stackamt, unstackAmt, unstackDate, transaction_id, block_timestamp, block_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`magicBoosterUnstack saved: ${tx}`);
+  } catch (err) {
+    console.error("magicBoosterUnstack handler error:", err, { rv, tx });
+  }
+}
+
+async function handle_claimMBoosterIncome(rv, tx, ts, block) {
+  try {
+    const userRegId = await safeUserIdn(rv.user);
+    const values = [rv.lastStakeId, rv.user, userRegId, rv.stackamt, rv.perdayIncome, rv.unstackDate, tx, ts, block];
+    const checkSql = `SELECT id FROM claimMBoosterIncome WHERE lastStakeId=? AND user=? AND user_idn=? AND stackamt=? AND perdayIncome=? AND unstackDate=? AND transaction_id=? AND block_timestamp=? AND block_number=?`;
+    const found = await runQuery(checkSql, values);
+    if (found && found.length > 0) return;
+
+    const insertSql = `INSERT INTO claimMBoosterIncome (lastStakeId, user, user_idn, stackamt, perdayIncome, unstackDate, transaction_id, block_timestamp, block_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    await runQuery(insertSql, values);
+    console.log(`claimMBoosterIncome saved: ${tx}`);
+  } catch (err) {
+    console.error("claimMBoosterIncome handler error:", err, { rv, tx });
+  }
+}
+
+/* --------------------------
+   Your existing DB helpers (preserved)
+   -------------------------- */
 async function getLastSyncBlock() {
   return new Promise((resolve, reject) => {
     conn.query("SELECT latest_block FROM eventBlock LIMIT 1", (err, result) => {
@@ -316,7 +391,6 @@ async function getuserIdnId(referrer) {
   });
 }
 
-
 async function getEventReciept(fromBlock, toBlock) {
   let eventsData = await contract.getPastEvents("allEvents", {
     fromBlock: fromBlock,
@@ -351,9 +425,8 @@ function round(number) {
   return Math.round(number * 1000) / 1000;
 }
 
-listEvent();
+/* --------------------------
+   Server
+   -------------------------- */
 app.get("/", (req, res) => res.send("Server running!"));
 app.listen(3000, () => console.log("Server on port 3000"));
-
-
-
