@@ -62,7 +62,7 @@ async function listEvent() {
       return setTimeout(listEvent, 10000);
     }
     // Limit batch size (100)
-    let toBlock = fromBlock + 100;
+    let toBlock = fromBlock + 2000;
     if (toBlock > latestBlock) toBlock = latestBlock;
     console.log(new Date());
     console.log("New block");
