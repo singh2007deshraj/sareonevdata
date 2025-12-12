@@ -39,17 +39,17 @@ async function listEvent() {
   let events = await getEventReciept(fromBlock, toBlock);
   await processEvents(events);
   await updateBlock(toBlock);
-  setTimeout(listEvent, 10000);
+  //setTimeout(listEvent, 10000);
 }
 
-// cron.schedule("1 * * * *", async () => {
-//   try {
-//     await listEvent();   // ← always await async functions
-//     console.log("Cron job executed successfully");
-//   } catch (err) {
-//     console.error("Cron job error:", err);
-//   }
-// });
+cron.schedule("1 * * * *", async () => {
+  try {
+    await listEvent();   // ← always await async functions
+    console.log("Cron job executed successfully");
+  } catch (err) {
+    console.error("Cron job error:", err);
+  }
+});
 
 listEvent();
 
